@@ -25,7 +25,7 @@ def crontab_processing():
     # Compile RegEx for speed and beauty
     p = re.compile('''
     ^               # beginning of the line
-    (\d|\*|,)*      # any number of digits, asterisks, comma TODO: ranges, divisions, pluses, ?, 'L', 'M'
+    (\d|\*|,|-|/)*      # any number of digits, asterisks, comma TODO: ?, 'L', 'M'
     $               # end of the line
     ''', re.VERBOSE)
 
@@ -45,11 +45,12 @@ def crontab_processing():
             # Try to find previous job's executions.
             try:
                 sys_log_file = open('/var/log/cron', 'r')  # Specify here cron log destination for your distr.
+                                                           # Not required for current version.
                 log_lines = [k for k in sys_log_file.readlines()]
 
                 # Find and parse the last execution time
                 for log_line in log_lines:
-                    if log_line.find(job) > 0:
+                    if log_line.find(job) > -1:
                         last_exec_date = log_line[:12]
 
                 last_minute = last_exec_date.split('  ', )[1].split(' ')[1].split(':')[1]
@@ -76,53 +77,40 @@ def next_date_calc(cron_date, last_date=[]):
     next_date = today  # Initial date
     not_now = False
 
-    # If last execution time was found then first thread,
-    # else second TODO: write first thread, modify second(*/5, ranges, etc.)
-
-    #if last_date:
-    #    return next_date
-    #else:
-    #    return next_date
-
     # Calculate date values one by one. In decreasing order. If '*' - stay the same and skip the block.
-    # 1. Get all hours from row, to_init them and then sort;
-    # 2. Filter the previous action result and get the first item
     if cron_date[3] != '*':  # Month
         next_month = []
-        month_list = sorted(map(lambda x: int(x), cron_date[3].split(',')))
-        approp_list = filter(lambda x: (x >= today.month), month_list)
+        month_list = parse_list(cron_date[3], 'month')
+        approp_list = filter(lambda x: (x >= today.month), sorted(month_list))
 
         for month in approp_list:
             next_month = month
             break
 
-        # 3. If next month is within this year, then just add it.
+        # If next month is within this year, then just add it.
         if next_month:
             next_date += MonthDelta((next_month - today.month))
             if next_month != today.month:
                 not_now = True
-        # 4. If not, then get the lowest number from month_list and go with it to next year
+        # If not, then get the lowest number from month_list and go with it to next year
         else:
             next_date += MonthDelta((12 - today.month + month_list[0]))
             not_now = True
 
     if cron_date[2] != '*':  # Day
         next_day = []
-        day_list = sorted(map(lambda x: int(x), cron_date[2].split(',')))
-        approp_list = filter(lambda x: (x >= today.day), day_list)
+        day_list = parse_list(cron_date[2], 'day')
+        approp_list = filter(lambda x: (x >= today.day), sorted(day_list))
 
         for day in approp_list:
             next_day = day
             break
 
-        # If not if this month, then just get the lowest number from day_list with other the same values.
+        # If not this month, then just get the lowest number from day_list with other the same values.
         if not_now:
             if day_list[0] < today.day:
-                next_date += timedelta(calendar.monthrange(today.year, today.month)[1] - today.day + day_list[0])
-                not_now = True
-            else:
                 next_date = datetime(next_date.year, next_date.month, day_list[0],
-                                 next_date.hour, next_date.minute, 0)
+                                     next_date.hour, next_date.minute, 0)
         elif next_day:
             next_date += timedelta(next_day - today.day)
             if next_day != today.day:
@@ -133,8 +121,8 @@ def next_date_calc(cron_date, last_date=[]):
 
     if cron_date[1] != '*':  # Hour
         next_hour = []
-        hour_list = sorted(map(lambda x: int(x), cron_date[1].split(',')))
-        approp_list = filter(lambda x: (x >= today.hour), hour_list)
+        hour_list = parse_list(cron_date[1], 'hour')
+        approp_list = filter(lambda x: (x >= today.hour), sorted(hour_list))
 
         for hour in approp_list:
             next_hour = hour
@@ -142,9 +130,6 @@ def next_date_calc(cron_date, last_date=[]):
 
         if not_now:
             if hour_list[0] < today.hour:
-                next_date += timedelta(hours=24 - today.hour + hour_list[0])
-                not_now = True
-            else:
                 next_date = datetime(next_date.year, next_date.month, next_date.day,
                                      hour_list[0], next_date.minute, 0)
         elif next_hour:
@@ -157,7 +142,7 @@ def next_date_calc(cron_date, last_date=[]):
 
     if cron_date[0] != '*':  # Minute
         next_min = []
-        min_list = sorted(map(lambda x: int(x), cron_date[0].split(',')))
+        min_list = parse_list(cron_date[0], 'minute')
         approp_list = filter(lambda x: (x >= today.minute), min_list)
 
         for min in approp_list:
@@ -165,10 +150,7 @@ def next_date_calc(cron_date, last_date=[]):
             break
 
         if not_now:
-            if min_list[0] < today.minute:
-                next_date += timedelta(minutes=24 - today.minute + min_list[0])
-            else:
-                next_date = datetime(next_date.year, next_date.month, next_date.day,
+            next_date = datetime(next_date.year, next_date.month, next_date.day,
                                  next_date.hour, min_list[0], 0)
 
         elif next_min:
@@ -183,6 +165,44 @@ def next_date_calc(cron_date, last_date=[]):
             next_date += timedelta(minutes=1)
 
     return next_date
+
+
+def parse_list(values, vtype):
+    """Parse the input params to the list of values using cron rules."""
+
+    value_list = []
+    if vtype == 'month':
+        first_relement = 1
+        second_relement = 12
+    elif vtype == 'day':
+        first_relement = 1
+        second_relement = 30
+    elif vtype == 'hour':
+        first_relement = 0
+        second_relement = 23
+    elif vtype == 'minute':
+        first_relement = 0
+        second_relement = 59
+    else:
+        return 'Wrong type designation.'
+
+    # If '*/5'(for example), then return a list with 'every fifth'.
+    if values.find('/') > -1 and values.find('*') > -1:
+        value_list = range(first_relement, second_relement + 1, int(values.split('/')[1]))
+    # If '3-9/3'(for example), then return a list with [3,6,9].
+    elif values.find('/') > -1:
+        value = values.split('/')[0]
+        value_list = range(int(value.split('-')[0]), int(value.split('-')[1])+1, int(values.split('/')[1]))
+    # If '1,2-4,6,9,10-12', then return a list with [1, 2, 3, 4, 6, 9, 10, 11, 12].
+    else:
+        for value in values.split(','):
+            if value.find('-') > -1:
+                for sgl_value in range(int(value.split('-')[0]), int(value.split('-')[1])+1):
+                    value_list.append(sgl_value)
+            else:
+                value_list.append(int(value))
+
+    return value_list
 
 
 if __name__ == '__main__':
