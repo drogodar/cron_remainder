@@ -22,11 +22,11 @@ def crontab_processing():
     if out:
         crontab_rows = out.split("\n")
 
-    # Compile RegEx for speed and beauty
+    # Compile RegEx for beauty
     p = re.compile('''
-    ^               # beginning of the line
-    (\d|\*|,|-|/)*      # any number of digits, asterisks, comma TODO: ?, 'L', 'M'
-    $               # end of the line
+    ^                # beginning of the line
+    (\d|\*|,|-|/)*   # any number of digits, asterisks, commas, '-' and '/'  TODO: ?, 'L', 'M'
+    $                # end of the line
     ''', re.VERBOSE)
 
     month_names = {"Jan": '1', "Feb": '2', "Mar": '3', "Apr": '4', "May": '5', "Jun": '6', "Jul": '7', "Aug": '8',
